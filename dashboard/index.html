@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐊 DipSniffer Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --swamp-dark: #0a1a0f;
+    --swamp-bg: #0f2417;
+    --swamp-card: #132e1b;
+    --swamp-border: #1a4025;
+    --swamp-highlight: #1f5030;
+    --croc-green: #2ecc71;
+    --croc-dark-green: #1a9c54;
+    --croc-glow: #00ff6a;
+    --water-blue: #1a6b5a;
+    --danger-red: #e74c3c;
+    --danger-glow: #ff4444;
+    --warm-gold: #f1c40f;
+    --warm-amber: #e67e22;
+    --text-primary: #e8f5e9;
+    --text-secondary: #81c784;
+    --text-muted: #4a7a5a;
+    --mono: 'JetBrains Mono', monospace;
+    --display: 'Outfit', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--swamp-dark);
+    color: var(--text-primary);
+    font-family: var(--display);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Swamp water animation */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+      radial-gradient(ellipse at 20% 80%, rgba(46, 204, 113, 0.03) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(26, 107, 90, 0.05) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(15, 36, 23, 0.8) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 32px;
+    position: relative;
+  }
+
+  .header h1 {
+    font-size: 2.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--croc-green), var(--croc-glow), var(--water-blue));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -1px;
+    margin-bottom: 4px;
+  }
+
+  .header .subtitle {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .status-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 24px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--swamp-card);
+    border: 1px solid var(--swamp-border);
+    border-radius: 24px;
+    padding: 8px 16px;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+  }
+
+  .pulse {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--croc-green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .pulse.danger { background: var(--danger-red); animation-name: pulse-red; }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(46, 204, 113, 0); }
+  }
+  @keyframes pulse-red {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+  }
+
+  /* Position Card */
+  .position-card {
+    background: linear-gradient(135deg, var(--swamp-card), var(--swamp-highlight));
+    border: 1px solid var(--swamp-border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .position-card.holding {
+    border-color: var(--croc-green);
+    box-shadow: 0 0 30px rgba(46, 204, 113, 0.08);
+  }
+
+  .position-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-family: var(--mono);
+    margin-bottom: 4px;
+  }
+
+  .position-value {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+
+  .position-value.cash { color: var(--croc-green); }
+  .position-value.coin { color: var(--warm-gold); }
+
+  .stat-group {
+    text-align: center;
+  }
+
+  .stat-number {
+    font-size: 1.4rem;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+
+  .stat-number.positive { color: var(--croc-green); }
+  .stat-number.negative { color: var(--danger-red); }
+
+  /* Coin Grid */
+  .coin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .coin-card {
+    background: var(--swamp-card);
+    border: 1px solid var(--swamp-border);
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .coin-card:hover {
+    border-color: var(--croc-green);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .coin-card.buy-signal {
+    border-color: var(--croc-glow);
+    box-shadow: 0 0 20px rgba(0, 255, 106, 0.15);
+    animation: croc-strike 1s ease-in-out infinite;
+  }
+
+  .coin-card.sell-signal {
+    border-color: var(--danger-red);
+    box-shadow: 0 0 15px rgba(231, 76, 60, 0.1);
+  }
+
+  .coin-card.held {
+    border-color: var(--warm-gold);
+    box-shadow: 0 0 20px rgba(241, 196, 15, 0.1);
+  }
+
+  @keyframes croc-strike {
+    0%, 100% { box-shadow: 0 0 20px rgba(0, 255, 106, 0.15); }
+    50% { box-shadow: 0 0 35px rgba(0, 255, 106, 0.25); }
+  }
+
+  .coin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    gap: 8px;
+  }
+
+  .coin-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  .coin-symbol {
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+
+  .coin-price {
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+  }
+
+  .signal-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-family: var(--mono);
+  }
+
+  .signal-badge.buy {
+    background: rgba(0, 255, 106, 0.15);
+    color: var(--croc-glow);
+    border: 1px solid rgba(0, 255, 106, 0.3);
+  }
+
+  .signal-badge.sell {
+    background: rgba(231, 76, 60, 0.15);
+    color: var(--danger-red);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+  }
+
+  .signal-badge.held {
+    background: rgba(241, 196, 15, 0.15);
+    color: var(--warm-gold);
+    border: 1px solid rgba(241, 196, 15, 0.3);
+  }
+
+  .signal-badge.neutral {
+    background: rgba(129, 199, 132, 0.1);
+    color: var(--text-muted);
+    border: 1px solid var(--swamp-border);
+  }
+
+  .signal-badge.divergence {
+    background: rgba(155, 89, 182, 0.15);
+    color: #bb86fc;
+    border: 1px solid rgba(155, 89, 182, 0.3);
+    font-size: 0.6rem;
+  }
+
+  .signal-badge.squeeze {
+    background: rgba(230, 126, 34, 0.15);
+    color: var(--warm-amber);
+    border: 1px solid rgba(230, 126, 34, 0.3);
+    font-size: 0.6rem;
+  }
+
+  .signal-badge.squeeze-fire {
+    background: rgba(241, 196, 15, 0.2);
+    color: var(--warm-gold);
+    border: 1px solid rgba(241, 196, 15, 0.4);
+    font-size: 0.6rem;
+    animation: croc-strike 1s ease-in-out infinite;
+  }
+
+  .signal-badge.walk {
+    background: rgba(255, 140, 0, 0.15);
+    color: #ff8c00;
+    border: 1px solid rgba(255, 140, 0, 0.3);
+    font-size: 0.6rem;
+  }
+
+  /* RSI Bar */
+  .rsi-container {
+    margin-bottom: 8px;
+  }
+
+  .rsi-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .rsi-track {
+    height: 6px;
+    background: var(--swamp-dark);
+    border-radius: 3px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .rsi-zones {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+  }
+
+  .rsi-zone-buy { position: absolute; left: 0; width: 30%; height: 100%; background: rgba(0, 255, 106, 0.08); }
+  .rsi-zone-sell { position: absolute; right: 0; width: 30%; height: 100%; background: rgba(231, 76, 60, 0.08); }
+
+  .rsi-needle {
+    position: absolute;
+    top: -2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    transform: translateX(-50%);
+    transition: left 0.5s ease;
+  }
+
+  .rsi-needle.oversold { background: var(--croc-glow); box-shadow: 0 0 8px var(--croc-glow); }
+  .rsi-needle.overbought { background: var(--danger-red); box-shadow: 0 0 8px var(--danger-red); }
+  .rsi-needle.neutral { background: var(--text-muted); }
+
+  /* BB Position */
+  .bb-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .bb-track {
+    flex: 1;
+    height: 4px;
+    background: var(--swamp-dark);
+    border-radius: 2px;
+    position: relative;
+  }
+
+  .bb-fill {
+    position: absolute;
+    top: 0; bottom: 0;
+    background: linear-gradient(90deg, var(--croc-green), var(--water-blue), var(--danger-red));
+    border-radius: 2px;
+    opacity: 0.3;
+    left: 0; right: 0;
+  }
+
+  .bb-dot {
+    position: absolute;
+    top: -3px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    transform: translateX(-50%);
+    transition: left 0.5s ease;
+    border: 2px solid var(--swamp-card);
+  }
+
+  /* Trade Log */
+  .trade-log {
+    background: var(--swamp-card);
+    border: 1px solid var(--swamp-border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+
+  .trade-log h3 {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+
+  .trade-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--swamp-border);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+  }
+
+  .trade-entry:last-child { border-bottom: none; }
+
+  .trade-action.buy { color: var(--croc-green); }
+  .trade-action.sell { color: var(--danger-red); }
+  .trade-pnl.positive { color: var(--croc-green); }
+  .trade-pnl.negative { color: var(--danger-red); }
+
+  .no-trades {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 16px;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 24px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .eyes {
+    font-size: 1.2rem;
+    animation: blink 4s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%, 90%, 100% { opacity: 1; }
+    95% { opacity: 0.2; }
+  }
+
+  .stale-warning {
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid var(--danger-red);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--danger-red);
+    margin-bottom: 16px;
+  }
+
+  .legend {
+    margin-bottom: 16px;
+  }
+
+  .legend summary {
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    text-align: center;
+    padding: 8px;
+    list-style: none;
+    user-select: none;
+  }
+
+  .legend summary::-webkit-details-marker { display: none; }
+  .legend summary::before { content: '▸ '; }
+  .legend[open] summary::before { content: '▾ '; }
+
+  .legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 6px 16px;
+    padding: 12px 16px;
+    background: var(--swamp-card);
+    border: 1px solid var(--swamp-border);
+    border-radius: 10px;
+    margin-top: 8px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    padding: 4px 0;
+  }
+
+  .legend-item .signal-badge { flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>🐊 DipSniffer</h1>
+    <div class="subtitle">Automated Swing Trading Bot <!-- &bull; <a href="champions.html" style="color: var(--croc-glow); text-decoration: none;">🧬 View Lab</a> --></div>
+    <div class="status-bar" id="statusBar">
+      <div class="status-pill">
+        <div class="pulse" id="botPulse"></div>
+        <span id="botStatus">Loading...</span>
+      </div>
+      <div class="status-pill">
+        🕐 <span id="lastUpdate">--</span>
+      </div>
+      <div class="status-pill">
+        📊 <span id="coinCount">--</span> coins watched
+      </div>
+    </div>
+  </div>
+
+  <div id="staleWarning" class="stale-warning" style="display:none">
+    ⚠️ Data is stale — DipSniffer may not be running. Check: <code>ps aux | grep kraken-swing-bot</code>
+  </div>
+
+  <div class="position-card" id="positionCard">
+    <div>
+      <div class="position-label">Current Position</div>
+      <div class="position-value cash" id="positionValue">Loading...</div>
+    </div>
+    <div class="stat-group">
+      <div class="position-label">Total P&L</div>
+      <div class="stat-number" id="totalPnl">--</div>
+    </div>
+    <div class="stat-group">
+      <div class="position-label">Trades</div>
+      <div class="stat-number" id="tradeCount">--</div>
+    </div>
+    <div class="stat-group">
+      <div class="position-label">Stop-Loss</div>
+      <div class="stat-number" id="stopLoss">--</div>
+    </div>
+  </div>
+
+  <div class="coin-grid" id="coinGrid"></div>
+
+  <details class="legend">
+    <summary>Signal Legend</summary>
+    <div class="legend-grid">
+      <div class="legend-item"><span class="signal-badge neutral" style="background: rgba(255,255,255,0.05);">★ SCORE</span> Composite strength rank used by YOLO Hunt (Higher = better technical setup)</div>
+      <div class="legend-item"><span class="signal-badge buy">🎯 BUY</span> Classic dip: RSI under 30 + price hit bottom band + strong volume</div>
+      <div class="legend-item"><span class="signal-badge buy">💥 SQUEEZE BUY</span> Explosive breakout with volume (allowed to buy even if RSI is high)</div>
+      <div class="legend-item"><span class="signal-badge sell">OVERBOUGHT</span> Time to exit: RSI > 70 or price jumped the top band</div>
+      <div class="legend-item"><span class="signal-badge held">🐊 HOLDING</span> The coin we are currently swinging</div>
+      <div class="legend-item"><span class="signal-badge neutral">LURKING</span> Just watching, no action needed right now</div>
+      <div class="legend-item"><span class="signal-badge divergence">⬆DIV</span> Bullish divergence: Coin price fell, but momentum actually improved</div>
+      <div class="legend-item"><span class="signal-badge squeeze">🟠SQZ</span> Coiling: Price range is compressing, getting ready for a big move</div>
+      <div class="legend-item"><span class="signal-badge squeeze-fire">💥SQZ</span> Breakout: Coiled bands just popped open upwards!</div>
+      <div class="legend-item"><span style="color: var(--text-muted); font-family: var(--mono); font-size: 0.65rem">1.5×vol</span> Peak volume from the last 2 hours compared to the 20-hour average</div>
+      <div class="legend-item"><span class="signal-badge walk">🔥WALK</span> Strong uptrend riding the top band — tells the AI to hold longer</div>
+    </div>
+  </details>
+
+  <div class="trade-log" id="tradeLog">
+    <h3>🐊 Recent Kills</h3>
+    <div class="no-trades">No trades yet — DipSniffer is lurking...</div>
+  </div>
+
+  <div class="footer">
+    <span class="eyes">👀</span> 16 eyes in the water · refreshes every 10s
+  </div>
+</div>
+
+<script>
+  const STATUS_URL = 'status.json';
+  let lastData = null;
+
+  function formatPrice(price) {
+    if (price >= 1000) return '$' + price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    if (price >= 1) return '$' + price.toFixed(4);
+    if (price >= 0.001) return '$' + price.toFixed(6);
+    return '$' + price.toFixed(9);
+  }
+
+  function timeAgo(isoString) {
+    const now = new Date();
+    const then = new Date(isoString);
+    const secs = Math.floor((now - then) / 1000);
+    if (secs < 60) return secs + 's ago';
+    if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+    if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+    return Math.floor(secs / 86400) + 'd ago';
+  }
+
+  function getRsiClass(rsi) {
+    if (rsi <= 30) return 'oversold';
+    if (rsi >= 70) return 'overbought';
+    return 'neutral';
+  }
+
+  function renderCoinCard(coin, heldSymbol) {
+    const isHeld = coin.symbol === heldSymbol;
+    let cardClass = 'coin-card';
+    let badge = '';
+
+    if (isHeld) {
+      cardClass += ' held';
+      badge = '<span class="signal-badge held">🐊 HOLDING</span>';
+    } else if (coin.buy_signal || coin.squeeze_buy) {
+      cardClass += ' buy-signal';
+      badge = coin.squeeze_buy && !coin.buy_signal
+        ? '<span class="signal-badge buy">💥 SQUEEZE BUY</span>'
+        : '<span class="signal-badge buy">🎯 BUY</span>';
+    } else if (coin.sell_signal) {
+      cardClass += ' sell-signal';
+      badge = '<span class="signal-badge sell">OVERBOUGHT</span>';
+    } else {
+      badge = '<span class="signal-badge neutral">LURKING</span>';
+    }
+
+    const rsiPct = Math.min(100, Math.max(0, coin.rsi));
+    const bbPct = Math.min(100, Math.max(0, coin.bb_position * 100));
+
+    const divBadge = coin.rsi_divergence ? '<span class="signal-badge divergence">⬆DIV</span>' : '';
+    const sqzBadge = coin.bb_squeeze_breakout
+      ? '<span class="signal-badge squeeze-fire">💥SQZ</span>'
+      : (coin.bb_squeezing ? '<span class="signal-badge squeeze">🟠SQZ</span>' : '');
+    const walkBadge = coin.band_walking
+      ? `<span class="signal-badge walk">🔥WALK(${coin.band_walk_count})</span>`
+      : '';
+    const volText = coin.vol_ratio > 0 ? `<span style="color: ${coin.vol_ratio >= 1.5 ? 'var(--croc-glow)' : 'var(--text-muted)'}; font-family: var(--mono); font-size: 0.65rem">${coin.vol_ratio}×vol</span>` : '';
+    const scoreBadge = `<span class="signal-badge neutral" style="background: rgba(255,255,255,0.05);" title="Composite Strength Score">★ ${coin.strength ? coin.strength.toFixed(1) : '0.0'}</span>`;
+
+    return `
+      <div class="${cardClass}">
+        <div class="coin-header">
+          <div>
+            <span class="coin-symbol">${coin.symbol}</span>
+            <span class="coin-price">${formatPrice(coin.price)}</span>
+          </div>
+          <div class="coin-badges">${badge}${divBadge}${sqzBadge}${walkBadge}${scoreBadge}</div>
+        </div>
+        <div class="rsi-container">
+          <div class="rsi-label">
+            <span>RSI</span>
+            <span style="color: ${coin.rsi <= 30 ? 'var(--croc-glow)' : coin.rsi >= 70 ? 'var(--danger-red)' : 'var(--text-secondary)'}">${coin.rsi}</span>
+          </div>
+          <div class="rsi-track">
+            <div class="rsi-zones">
+              <div class="rsi-zone-buy"></div>
+              <div class="rsi-zone-sell"></div>
+            </div>
+            <div class="rsi-needle ${getRsiClass(coin.rsi)}" style="left: ${rsiPct}%"></div>
+          </div>
+        </div>
+        <div class="bb-container">
+          <span>BB</span>
+          <div class="bb-track">
+            <div class="bb-fill"></div>
+            <div class="bb-dot" style="left: ${bbPct}%"></div>
+          </div>
+          <span>${coin.bb_position.toFixed(2)}</span>
+          ${volText}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderTradeLog(trades) {
+    const container = document.getElementById('tradeLog');
+    if (!trades || trades.length === 0) {
+      container.innerHTML = '<h3>🐊 Recent Kills</h3><div class="no-trades">No trades yet — DipSniffer is lurking... <span class="eyes">👀</span></div>';
+      return;
+    }
+
+    const entries = trades.reverse().map(t => {
+      const actionClass = t.action.toLowerCase();
+      const pnlHtml = t.pnl !== undefined
+        ? `<span class="trade-pnl ${t.pnl >= 0 ? 'positive' : 'negative'}">${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}</span>`
+        : '';
+      const time = t.time ? timeAgo(t.time) : '';
+      return `
+        <div class="trade-entry">
+          <span class="trade-action ${actionClass}">${t.action === 'BUY' ? '🐊' : '💰'} ${t.action} ${t.symbol}</span>
+          <span>${formatPrice(t.price)} × ${t.quantity}</span>
+          ${pnlHtml}
+          <span style="color: var(--text-muted)">${time}</span>
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = `<h3>🐊 Recent Kills</h3>${entries}`;
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch(STATUS_URL + '?t=' + Date.now());
+      if (!res.ok) throw new Error('No status file');
+      const data = await res.json();
+      lastData = data;
+
+      // Check staleness (>10 min)
+      const age = (Date.now() - new Date(data.timestamp).getTime()) / 1000;
+      const stale = age > 600;
+      document.getElementById('staleWarning').style.display = stale ? 'block' : 'none';
+      document.getElementById('botPulse').className = stale ? 'pulse danger' : 'pulse';
+      document.getElementById('botStatus').textContent = stale ? 'Possibly offline' : 'Hunting';
+      document.getElementById('lastUpdate').textContent = timeAgo(data.timestamp);
+      document.getElementById('coinCount').textContent = data.coins.length;
+
+      // Position
+      const card = document.getElementById('positionCard');
+      const posValue = document.getElementById('positionValue');
+      if (data.position) {
+        card.classList.add('holding');
+        const val = data.position_value ? ` ($${data.position_value.toFixed(2)})` : '';
+        posValue.textContent = `🐊 ${data.quantity} ${data.position}${val}`;
+        posValue.className = 'position-value coin';
+        const stopEl = document.getElementById('stopLoss');
+        const trailPct = data.entry_price > 0 ? ((1 - data.stop_loss / data.highest_since_entry) * 100).toFixed(1) : '?';
+        stopEl.textContent = formatPrice(data.stop_loss) + ` (${trailPct}%)`;
+      } else {
+        card.classList.remove('holding');
+        posValue.textContent = `💵 $${data.usd_balance.toFixed(2)} Cash`;
+        posValue.className = 'position-value cash';
+        document.getElementById('stopLoss').textContent = '--';
+      }
+
+      // P&L
+      const pnlEl = document.getElementById('totalPnl');
+      pnlEl.textContent = (data.total_pnl >= 0 ? '+' : '') + '$' + data.total_pnl.toFixed(2);
+      pnlEl.className = 'stat-number ' + (data.total_pnl >= 0 ? 'positive' : 'negative');
+
+      document.getElementById('tradeCount').textContent = data.trade_count;
+
+      // Coins — sorted by composite strength (highest first), held coin last
+      const grid = document.getElementById('coinGrid');
+      const sorted = [...data.coins].sort((a, b) => {
+        const aHeld = a.symbol === data.position ? 1 : 0;
+        const bHeld = b.symbol === data.position ? 1 : 0;
+        if (aHeld !== bHeld) return aHeld - bHeld;
+        return (b.strength || 0) - (a.strength || 0);
+      });
+      grid.innerHTML = sorted.map(c => renderCoinCard(c, data.position)).join('');
+
+      // Trades
+      renderTradeLog(data.last_trades);
+
+    } catch (e) {
+      document.getElementById('botStatus').textContent = 'Offline';
+      document.getElementById('botPulse').className = 'pulse danger';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 10000);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,33 @@
+# DipSniffer: Mac Antigravity Auto-Setup Guide
+
+Hello, Antigravity Agent! Your human user wants you to set up the DipSniffer trading bot on their macOS machine. Follow this strictly deterministic checklist to initialize the environment.
+
+## 1. System Dependencies
+Macs require explicit package management.
+1. Use your terminal tools to verify `python3` and `pip3` exist.
+2. Install the required Python data/exchange libraries:
+   `pip3 install ccxt pandas`
+3. The bot utilizes Gemini Flash as a risk-veto layer. Install the official Google Generative AI CLI via npm (ensure `npm` is available):
+   `npm install -g @google/generative-ai-cli`
+
+## 2. Environment & Auth Initialization
+DipSniffer requires two sets of API keys to function: Kraken (for execution) and Gemini (for analysis).
+
+1. **Ask the user** for their Kraken API Key and Kraken API Secret.
+2. Create the configuration directory: `mkdir -p ~/.config/dipsniffer`
+3. Write the keys to `~/.config/dipsniffer/config.toml` securely (permissions 600):
+   ```toml
+   api_key = "their_key_here"
+   api_secret = "their_secret_here"
+   ```
+4. **Ask the user** for their Google AI / Gemini API key. Add it to their shell profile (e.g. `~/.zshrc` or `~/.bash_profile`) as `export GEMINI_API_KEY="their_key_here"`.
+
+## 3. Initializing the Strategy
+1. The default strategy configuration is bundled in the repo.
+2. Copy `strategy_config.json` from this repository to `~/.config/dipsniffer/strategy_config.json`. (This is the +17.7% PnL Champion config).
+
+## 4. Boot Execution
+1. The user can start the bot and its dashboard using the wrapper script.
+2. Ensure the wrapper is executable: `chmod +x start-dipsniffer.sh`
+3. You can execute it for them: `./start-dipsniffer.sh`
+4. Provide the user with the localhost URL (`http://localhost:8077`) so they can view the dashboard.
