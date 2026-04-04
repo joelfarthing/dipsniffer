@@ -446,7 +446,7 @@ STOP_LOSS_FALLBACK = 0.08  # Fallback fixed % if ATR unavailable
 BB_MIN_WIDTH_PCT = 3.0     # Ignore upper-BB exit if band width < 3% (squeeze filter)
 VOLUME_SPIKE_MULT = 1.5    # Buy requires volume >= this × 20-candle average
 VOLUME_LOOKBACK = 20       # Candles to average for volume baseline
-LOOP_INTERVAL_SEC = 300    # 5 minutes
+LOOP_INTERVAL_SEC = 180    # 3 minutes
 OHLC_INTERVAL = 60         # 1-hour candles
 MIN_TRADE_USD = 5.0        # Kraken minimum order ~$5
 
