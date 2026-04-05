@@ -44,13 +44,13 @@ if _user_site not in sys.path:
 import ccxt
 
 # ─── Configuration ───────────────────────────────────────────────
-STATE_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot-state.json")
-LOG_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot.log")
-DASHBOARD_DIR = os.path.expanduser("~/.config/dipsniffer/dashboard")
+STATE_FILE = os.path.expanduser("~/.config/kraken/swing-bot-state.json")
+LOG_FILE = os.path.expanduser("~/.config/kraken/swing-bot.log")
+DASHBOARD_DIR = os.path.expanduser("~/.config/kraken/dashboard")
 STATUS_FILE = os.path.join(DASHBOARD_DIR, "status.json")
 
 class SQLiteLogger:
-    def __init__(self, db_path="~/.config/dipsniffer/market_history.db"):
+    def __init__(self, db_path="~/.config/kraken/market_history.db"):
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -355,15 +355,15 @@ class SQLiteLogger:
 
 # CCXT exchange instance (initialized once at module load)
 # API keys: env vars KRAKEN_API_KEY / KRAKEN_API_SECRET, or auto-read from
-# existing config at ~/.config/dipsniffer/config.toml
+# existing Kraken CLI config at ~/.config/kraken/config.toml
 def _load_kraken_keys() -> tuple[str, str]:
-    """Load API keys from env vars, falling back to config.toml."""
+    """Load API keys from env vars, falling back to Kraken CLI config.toml."""
     api_key = os.environ.get('KRAKEN_API_KEY', '')
     api_secret = os.environ.get('KRAKEN_API_SECRET', '')
     if api_key and api_secret:
         return api_key, api_secret
-    # Fallback: read from config
-    config_path = os.path.expanduser("~/.config/dipsniffer/config.toml")
+    # Fallback: read from Kraken CLI config
+    config_path = os.path.expanduser("~/.config/kraken/config.toml")
     if os.path.exists(config_path):
         with open(config_path) as f:
             for line in f:
@@ -483,6 +483,14 @@ STALE_EJECT_MAX_PNL_PCT = 1.5
 STALE_EJECT_MIN_HOURS_SINCE_HIGH = 12
 STALE_EJECT_MIN_STRENGTH_GAP = 12.0
 STALE_EJECT_MIN_TARGET_STRENGTH = 55.0
+
+# Momentum Continuation Buy (#30 — additive entry path for trending assets)
+MOMENTUM_RSI_MIN = 40.0              # Min RSI for momentum entry (trending, not bottoming)
+MOMENTUM_RSI_MAX = 70.0              # Max RSI for momentum entry (not overbought)
+MOMENTUM_BB_POS_MIN = 0.4            # Price must be above this BB position
+MOMENTUM_SLOPE_MIN = 2.0             # Min RSI slope over 3 periods (accelerating)
+MOMENTUM_GREEN_CANDLES = 3           # Consecutive rising closes required
+MOMENTUM_VOL_MIN_RATIO = 0.5         # Min volume ratio (permissive for momentum)
 
 
 # ─── CCXT API Wrapper ────────────────────────────────────────────
@@ -627,31 +635,51 @@ def get_funding_rate(symbol: str) -> tuple[float | None, bool]:
         return None, False
 
 
-# ─── Gemini CLI Sentiment Filter ─────────────────────────────────
-import shutil
-_GEMINI_KNOWN_PATH = os.path.expanduser("~/.npm-global/bin/gemini")
-GEMINI_CLI = shutil.which("gemini") or (
-    _GEMINI_KNOWN_PATH if os.path.isfile(_GEMINI_KNOWN_PATH) else "gemini"
-)
+# ─── Gemini SDK Sentiment Filter ─────────────────────────────────
+def _load_gemini_api_key() -> str:
+    key = os.getenv("GEMINI_API_KEY") or os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
+    if key: return key
+    secrets_env = os.path.expanduser("~/.config/secrets/system.env")
+    if os.path.exists(secrets_env):
+        with open(secrets_env, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or "=" not in line: continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                if k == "GEMINI_API_KEY":
+                    return v.strip().strip('"').strip("'")
+    return ""
 
 def gemini_sentiment(prompt: str) -> str | None:
-    """Call Gemini CLI (Flash) for a one-word sentiment check.
+    """Call Gemini SDK (Flash Lite) for a one-word sentiment check.
     Returns the parsed response or None on failure."""
     try:
-        result = subprocess.run(
-            [GEMINI_CLI, "-p", prompt, "-m", "flash",
-             "--allowed-mcp-server-names", "none"],
-            capture_output=True, text=True, timeout=120, cwd="/tmp",
-            stdin=subprocess.DEVNULL
+        from google import genai
+    except ImportError:
+        log("  ⚠️ google-genai SDK not installed. Please pip install google-genai.")
+        return None
+        
+    api_key = _load_gemini_api_key()
+    if not api_key:
+        log("  ⚠️ No Gemini API key found to run sentiment filter.")
+        return None
+        
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite-preview',
+            contents=prompt,
         )
-        if result.returncode != 0:
-            log(f"  ⚠️ Gemini CLI error (Code {result.returncode}):\n{result.stderr.strip()}")
+        if not response.text:
             return None
-        # Extract last non-empty line (CLI may output preamble noise before response)
-        lines = [l.strip() for l in result.stdout.strip().splitlines() if l.strip()]
+            
+        verdict_text = response.text.strip().upper()
+        # Fallback for unexpected output shapes or preamble noise.
+        lines = [l.strip() for l in verdict_text.splitlines() if l.strip()]
         return lines[-1] if lines else None
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        log(f"  ⚠️ Gemini CLI unavailable: {e}")
+    except Exception as e:
+        log(f"  ⚠️ Gemini SDK error: {e}")
         return None
 
 
@@ -921,8 +949,9 @@ def _with_retry(func, *args, **kwargs):
             time.sleep(delay)
 
 # ─── Technical Indicators ────────────────────────────────────────
-def calc_rsi(closes: list[float], period: int = RSI_PERIOD) -> float | None:
+def calc_rsi(closes: list[float], period: int = None) -> float | None:
     """Calculate RSI from close prices."""
+    if period is None: period = RSI_PERIOD
     if len(closes) < period + 1:
         return None
 
@@ -943,8 +972,10 @@ def calc_rsi(closes: list[float], period: int = RSI_PERIOD) -> float | None:
     return 100.0 - (100.0 / (1.0 + rs))
 
 
-def calc_bollinger(closes: list[float], period: int = BB_PERIOD, std_dev: float = BB_STD_DEV) -> tuple[float, float, float] | None:
+def calc_bollinger(closes: list[float], period: int = None, std_dev: float = None) -> tuple[float, float, float] | None:
     """Calculate Bollinger Bands. Returns (lower, middle, upper)."""
+    if period is None: period = BB_PERIOD
+    if std_dev is None: std_dev = BB_STD_DEV
     if len(closes) < period:
         return None
 
@@ -956,8 +987,9 @@ def calc_bollinger(closes: list[float], period: int = BB_PERIOD, std_dev: float 
     return (middle - std_dev * std, middle, middle + std_dev * std)
 
 
-def calc_atr(candles: list[dict], period: int = ATR_PERIOD) -> float | None:
+def calc_atr(candles: list[dict], period: int = None) -> float | None:
     """Calculate Average True Range from OHLC candles."""
+    if period is None: period = ATR_PERIOD
     if len(candles) < period + 1:
         return None
     true_ranges = []
@@ -973,10 +1005,12 @@ def calc_atr(candles: list[dict], period: int = ATR_PERIOD) -> float | None:
     return atr
 
 
-def calc_volume_spike(candles: list[dict], lookback: int = VOLUME_LOOKBACK,
-                      threshold: float = VOLUME_SPIKE_MULT) -> tuple[bool, float]:
+def calc_volume_spike(candles: list[dict], lookback: int = None,
+                      threshold: float = None) -> tuple[bool, float]:
     """Check if recent volume is a spike above the average.
     Returns (is_spike, volume_ratio) where ratio = max(latest, prev) / avg."""
+    if lookback is None: lookback = VOLUME_LOOKBACK
+    if threshold is None: threshold = VOLUME_SPIKE_MULT
     if len(candles) < lookback + 2:
         return False, 0.0
     recent = candles[-(lookback + 2):-2]  # 20 candles BEFORE the last 2
@@ -988,11 +1022,12 @@ def calc_volume_spike(candles: list[dict], lookback: int = VOLUME_LOOKBACK,
     return ratio >= threshold, round(ratio, 2)
 
 
-def calc_rsi_divergence(closes: list[float], period: int = RSI_PERIOD,
+def calc_rsi_divergence(closes: list[float], period: int = None,
                         lookback: int = 30) -> bool:
     """Detect bullish RSI divergence: price makes lower low but RSI makes higher low.
     Scans the last `lookback` candles for local lows and compares the two most recent.
     Returns True if bullish divergence is present."""
+    if period is None: period = RSI_PERIOD
     if len(closes) < max(period + 1, lookback):
         return False
 
@@ -1030,15 +1065,19 @@ def calc_rsi_divergence(closes: list[float], period: int = RSI_PERIOD,
     return curr_low[1] < prev_low[1] and curr_low[2] > prev_low[2]
 
 
-def calc_bb_squeeze(candles: list[dict], period: int = BB_PERIOD,
-                    std_dev: float = BB_STD_DEV,
-                    lookback: int = SQUEEZE_LOOKBACK,
-                    expand_candles: int = SQUEEZE_EXPAND_CANDLES) -> tuple[bool, bool, float]:
+def calc_bb_squeeze(candles: list[dict], period: int = None,
+                    std_dev: float = None,
+                    lookback: int = None,
+                    expand_candles: int = None) -> tuple[bool, bool, float]:
     """Detect Bollinger Band squeeze and upward breakout.
     A squeeze is when bb_width hits its tightest point in `lookback` candles
     and then starts expanding with price above the middle band.
     Returns (is_squeezing, is_breakout_up, squeeze_tightness).
     squeeze_tightness: 0.0-1.0, where 1.0 = tightest possible (current width == minimum)."""
+    if period is None: period = BB_PERIOD
+    if std_dev is None: std_dev = BB_STD_DEV
+    if lookback is None: lookback = SQUEEZE_LOOKBACK
+    if expand_candles is None: expand_candles = SQUEEZE_EXPAND_CANDLES
     if len(candles) < period + lookback:
         return False, False, 0.0
 
@@ -1096,12 +1135,15 @@ def calc_bb_squeeze(candles: list[dict], period: int = BB_PERIOD,
     return is_squeezing, is_breakout_up, round(tightness, 2)
 
 
-def detect_band_walk(candles: list[dict], bb_period: int = BB_PERIOD,
-                     bb_std: float = BB_STD_DEV,
-                     min_candles: int = BAND_WALK_MIN) -> tuple[bool, int]:
+def detect_band_walk(candles: list[dict], bb_period: int = None,
+                     bb_std: float = None,
+                     min_candles: int = None) -> tuple[bool, int]:
     """Detect if price is 'walking the upper band' — closing above the middle BB
     with bb_position well above center and a rising middle band.
     Returns (is_walking, consecutive_count)."""
+    if bb_period is None: bb_period = BB_PERIOD
+    if bb_std is None: bb_std = BB_STD_DEV
+    if min_candles is None: min_candles = BAND_WALK_MIN
     if len(candles) < bb_period + min_candles:
         return False, 0
 
@@ -1254,6 +1296,30 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
     # Allowed even if rsi > 70, as long as it hasn't hit bb_exit OR it cleanly cleared a 20-bar high
     squeeze_buy = bb_squeeze_breakout and vol_spike and (not bb_exit or cleared_high)
 
+    # Momentum Continuation Buy (#30 — additive entry path for trending assets)
+    # Catches assets that are steadily climbing, not dipping
+    consecutive_green = 0
+    for k in range(len(candles) - 1, max(len(candles) - 10, 0), -1):
+        if candles[k]["close"] > candles[k - 1]["close"]:
+            consecutive_green += 1
+        else:
+            break
+
+    # RSI slope over 3 periods
+    rsi_slope = 0.0
+    if len(closes) >= RSI_PERIOD + 3:
+        r_prev = calc_rsi(closes[:-2])
+        if r_prev is not None:
+            rsi_slope = rsi - r_prev
+
+    momentum_buy = (
+        MOMENTUM_RSI_MIN < rsi < MOMENTUM_RSI_MAX
+        and bb_position > MOMENTUM_BB_POS_MIN
+        and rsi_slope > MOMENTUM_SLOPE_MIN
+        and consecutive_green >= MOMENTUM_GREEN_CANDLES
+        and vol_ratio >= MOMENTUM_VOL_MIN_RATIO
+    )
+
     # Prevent immediate exit churn on fresh breakouts by raising the RSI exit threshold
     dynamic_overbought = 80 if (squeeze_buy or is_held_squeeze) else RSI_OVERBOUGHT
     sell_signal = rsi > dynamic_overbought or bb_exit
@@ -1261,8 +1327,20 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
     # Composite Signal Strength
     funding_rate_val = None
     funding_squeezed = False
-    if buy_signal or squeeze_buy:
-        # Base oversold depth score
+    if momentum_buy and not buy_signal and not squeeze_buy:
+        # Momentum-specific strength scoring:
+        # Rewards RSI slope (acceleration), trend persistence, and volume
+        slope_score = min(rsi_slope, 15.0) * 3.0        # RSI acceleration is primary signal
+        trend_score = min(consecutive_green, 6) * 5.0     # Persistence bonus
+        vol_score = min(vol_ratio, 3.0) * 5              # Modest volume bonus
+        momentum_pos_score = bb_position * 15             # Higher BB position = stronger trend
+        # Funding rate squeeze bonus (#19)
+        funding_rate_val, funding_squeezed = get_funding_rate(symbol)
+        funding_score = FUNDING_RATE_SCORE_BONUS if funding_squeezed else 0
+
+        strength = slope_score + trend_score + vol_score + momentum_pos_score + funding_score
+    elif buy_signal or squeeze_buy:
+        # Base oversold depth score (original dip-buy scoring)
         depth_score = max(0, 40 - rsi) * 1.5 + max(0, 1 - bb_position) * 30
         # Volume burst bonus
         vol_score = min(vol_ratio, 3.0) * 10
@@ -1288,7 +1366,16 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
         vol_score = min(float(vol_ratio), 3.0) * 5  # Modest volume bonus for waking up
         div_score = 10 if rsi_divergence else 0
         squeeze_score = bb_squeeze_tightness * 20 if bb_squeeze_tightness > 0 else 0
-        strength = depth_score + vol_score + div_score + squeeze_score
+        # Funding rate squeeze bonus (#19 — lazy, only when buy signal active)
+        funding_rate_val, funding_squeezed = get_funding_rate(symbol)
+        funding_score = FUNDING_RATE_SCORE_BONUS if funding_squeezed else 0
+        if funding_rate_val is not None:
+            funding_log = f" | 💰FR: {funding_rate_val:+.6f}"
+            if funding_squeezed:
+                funding_log += " 🔥SHORT SQUEEZE"
+            log(f"  {symbol}{funding_log}")
+
+        strength = depth_score + vol_score + div_score + squeeze_score + funding_score
 
     return {
         "symbol": symbol,
@@ -1311,11 +1398,14 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
         "band_walk_count": band_walk_count,
         "buy_signal": buy_signal,
         "squeeze_buy": squeeze_buy,
+        "momentum_buy": momentum_buy,
         "sell_signal": sell_signal,
         "strength": round(strength, 1),
         "atr": round(atr, 6) if atr else None,
         "funding_rate": funding_rate_val,
         "funding_squeezed": funding_squeezed,
+        "rsi_slope": round(rsi_slope, 2),
+        "consecutive_green": consecutive_green,
         "rel_strength_24h": None,
         "rel_strength_72h": None,
         "rel_strength_score": 0.0,
@@ -1363,12 +1453,17 @@ def select_best_entry_candidate(analyses: dict[str, dict],
 
     buy_candidates = [
         a for a in analyses.values()
-        if (a["buy_signal"] or a.get("squeeze_buy")) and a["symbol"] not in excluded
+        if (a["buy_signal"] or a.get("squeeze_buy") or a.get("momentum_buy")) and a["symbol"] not in excluded
     ]
 
     while buy_candidates:
         best = max(buy_candidates, key=lambda x: x["strength"])
-        sig_type = "SQUEEZE BREAKOUT" if best.get('squeeze_buy') and not best['buy_signal'] else "RSI/BB"
+        if best.get('momentum_buy') and not best.get('buy_signal') and not best.get('squeeze_buy'):
+            sig_type = "MOMENTUM"
+        elif best.get('squeeze_buy') and not best['buy_signal']:
+            sig_type = "SQUEEZE BREAKOUT"
+        else:
+            sig_type = "RSI/BB"
         log(f"  Best entry: {best['symbol']} ({sig_type}, strength: {best['strength']})")
         daily_rsi, daily_declining = get_daily_rsi(best['symbol'])
         if daily_rsi is not None:
@@ -1488,8 +1583,9 @@ def load_strategy_config():
     global BAND_WALK_MIN, DAILY_RSI_KNIFE, FUNDING_RATE_NEGATIVE_THRESHOLD, FUNDING_RATE_SCORE_BONUS
     global REL_STRENGTH_24H_MULT, REL_STRENGTH_72H_MULT, REL_STRENGTH_SCORE_CAP
     global STALE_EJECT_MIN_HOURS, STALE_EJECT_MAX_PNL_PCT, STALE_EJECT_MIN_HOURS_SINCE_HIGH, STALE_EJECT_MIN_STRENGTH_GAP, STALE_EJECT_MIN_TARGET_STRENGTH
+    global MOMENTUM_RSI_MIN, MOMENTUM_RSI_MAX, MOMENTUM_BB_POS_MIN, MOMENTUM_SLOPE_MIN, MOMENTUM_GREEN_CANDLES, MOMENTUM_VOL_MIN_RATIO
 
-    config_path = os.path.expanduser("~/.config/dipsniffer/strategy_config.json")
+    config_path = os.path.expanduser("~/.config/kraken/strategy_config.json")
     
     defaults = {
         "RSI_PERIOD": RSI_PERIOD,
@@ -1521,7 +1617,13 @@ def load_strategy_config():
         "STALE_EJECT_MAX_PNL_PCT": STALE_EJECT_MAX_PNL_PCT,
         "STALE_EJECT_MIN_HOURS_SINCE_HIGH": STALE_EJECT_MIN_HOURS_SINCE_HIGH,
         "STALE_EJECT_MIN_STRENGTH_GAP": STALE_EJECT_MIN_STRENGTH_GAP,
-        "STALE_EJECT_MIN_TARGET_STRENGTH": STALE_EJECT_MIN_TARGET_STRENGTH
+        "STALE_EJECT_MIN_TARGET_STRENGTH": STALE_EJECT_MIN_TARGET_STRENGTH,
+        "MOMENTUM_RSI_MIN": MOMENTUM_RSI_MIN,
+        "MOMENTUM_RSI_MAX": MOMENTUM_RSI_MAX,
+        "MOMENTUM_BB_POS_MIN": MOMENTUM_BB_POS_MIN,
+        "MOMENTUM_SLOPE_MIN": MOMENTUM_SLOPE_MIN,
+        "MOMENTUM_GREEN_CANDLES": MOMENTUM_GREEN_CANDLES,
+        "MOMENTUM_VOL_MIN_RATIO": MOMENTUM_VOL_MIN_RATIO
     }
     
     if not os.path.exists(config_path):
@@ -1592,6 +1694,12 @@ def load_strategy_config():
     STALE_EJECT_MIN_HOURS_SINCE_HIGH = _parse("STALE_EJECT_MIN_HOURS_SINCE_HIGH", float, 0.0)
     STALE_EJECT_MIN_STRENGTH_GAP = _parse("STALE_EJECT_MIN_STRENGTH_GAP", float, 0.0)
     STALE_EJECT_MIN_TARGET_STRENGTH = _parse("STALE_EJECT_MIN_TARGET_STRENGTH", float, 0.0)
+    MOMENTUM_RSI_MIN = _parse("MOMENTUM_RSI_MIN", float, 0.0, 100.0)
+    MOMENTUM_RSI_MAX = _parse("MOMENTUM_RSI_MAX", float, 0.0, 100.0)
+    MOMENTUM_BB_POS_MIN = _parse("MOMENTUM_BB_POS_MIN", float, 0.0, 1.0)
+    MOMENTUM_SLOPE_MIN = _parse("MOMENTUM_SLOPE_MIN", float)
+    MOMENTUM_GREEN_CANDLES = _parse("MOMENTUM_GREEN_CANDLES", int, 1, 20)
+    MOMENTUM_VOL_MIN_RATIO = _parse("MOMENTUM_VOL_MIN_RATIO", float, 0.0)
     log(f"✅ Strategy parameters safely loaded from config.")
 
 # Run configuration loader 
@@ -1738,6 +1846,9 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
     """Run one analysis + trade cycle."""
     log("═" * 50)
     log("Swing Bot cycle starting")
+    
+    # Hot-reload strategy configuration discovered by DeepSeek Auto Quant
+    load_strategy_config()
 
     telemetry = {
         "cycle": {
@@ -1969,7 +2080,12 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                 existing = balances.get(best["symbol"], 0)
 
                 if usd >= MIN_TRADE_USD:
-                    reason = "squeeze_buy" if best.get("squeeze_buy") and not best.get("buy_signal") else "buy_signal"
+                    if best.get("momentum_buy") and not best.get("buy_signal") and not best.get("squeeze_buy"):
+                        reason = "momentum_buy"
+                    elif best.get("squeeze_buy") and not best.get("buy_signal"):
+                        reason = "squeeze_buy"
+                    else:
+                        reason = "buy_signal"
                     state = execute_buy(state, best, usd, entry_reason=reason, telemetry=telemetry)
                 elif existing > 0:
                     # Already holding the target asset
@@ -2090,6 +2206,7 @@ def write_dashboard_status(state: dict, analyses: dict):
                 "bb_squeezing": a.get("bb_squeezing", False),
                 "bb_squeeze_breakout": a.get("bb_squeeze_breakout", False),
                 "squeeze_buy": a.get("squeeze_buy", False),
+                "momentum_buy": a.get("momentum_buy", False),
                 "band_walking": a.get("band_walking", False),
                 "band_walk_count": a.get("band_walk_count", 0),
                 "funding_rate": a.get("funding_rate"),
