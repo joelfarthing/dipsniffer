@@ -14,8 +14,8 @@ Macs require explicit package management.
 DipSniffer requires two sets of API keys to function: Kraken (for execution) and Gemini (for analysis).
 
 1. **Ask the user** for their Kraken API Key and Kraken API Secret.
-2. Create the configuration directory: `mkdir -p ~/.config/dipsniffer`
-3. Write the keys to `~/.config/dipsniffer/config.toml` securely (permissions 600):
+2. Create the configuration directory: `mkdir -p ~/.config/kraken`
+3. Write the keys to `~/.config/kraken/config.toml` securely (permissions 600):
    ```toml
    api_key = "their_key_here"
    api_secret = "their_secret_here"
@@ -24,7 +24,7 @@ DipSniffer requires two sets of API keys to function: Kraken (for execution) and
 
 ## 3. Initializing the Strategy
 1. The default strategy configuration is bundled in the repo.
-2. Copy `strategy_config.json` from this repository to `~/.config/dipsniffer/strategy_config.json`. (This is the +17.7% PnL Champion config).
+2. Copy `strategy_config.json` from this repository to `~/.config/kraken/strategy_config.json`. (This is the current 14-day AutoQuant champion config: `37.36%` PnL / `3.98%` max DD as of 2026-04-05.)
 
 ## 4. Boot Execution
 1. The user can start the bot and its dashboard using the wrapper script.

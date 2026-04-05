@@ -4,8 +4,8 @@ Auto-executing swing trader that monitors 17 coins on Kraken.
 Concentrates full balance into one asset at a time based on RSI + Bollinger Band signals, with 3 layers of Gemini Flash sentiment filters, a composite strength scoring system, and an ATR-based dynamic trailing stop.
 
 **Script:** `kraken-swing-bot.py`
-**State:** `~/.config/dipsniffer/swing-bot-state.json`
-**Log:** `~/.config/dipsniffer/swing-bot.log`
+**State:** `~/.config/kraken/swing-bot-state.json`
+**Log:** `~/.config/kraken/swing-bot.log`
 
 ---
 
@@ -46,7 +46,7 @@ When the market is bleeding and YOLOBot is idle in cash, it goes on the offensiv
 
 ### Additional Features
 - **Stale Position Eject**: If a trade is held for >48 hours with <1.5% profit and hasn't made a new high in 12 hours, YOLOBot mathematically identifies stronger candidates. If one passes a fresh Gemini veto, the capital is immediately rotated out of the stale asset to maximize opportunity cost.
-- **SQLite Data Log Engine**: Every market cycle, snapshot, and trade decision metadata is logged to `~/.config/dipsniffer/market_history.db` for offline backtesting and performance attribution.
+- **SQLite Data Log Engine**: Every market cycle, snapshot, and trade decision metadata is logged to `~/.config/kraken/market_history.db` for offline backtesting and performance attribution.
 - **Order Book Veto**: Scans the Kraken order book ±1% for sell walls. Buys are vetoed if sell volume > 3× buy volume in the near-term range.
 - **Funding Rate Overlay**: Adds a +25 composite strength bonus for coins in active short squeezes (negative funding rates).
 
@@ -91,13 +91,13 @@ tmux kill-session -t yolobot
 
 ```bash
 # Watch live
-tail -f ~/.config/dipsniffer/swing-bot.log
+tail -f ~/.config/kraken/swing-bot.log
 
 # Last 20 entries
-tail -20 ~/.config/dipsniffer/swing-bot.log
+tail -20 ~/.config/kraken/swing-bot.log
 
 # See all trades only
-grep "BOUGHT\|SOLD" ~/.config/dipsniffer/swing-bot.log
+grep "BOUGHT\|SOLD" ~/.config/kraken/swing-bot.log
 ```
 
 ## Watchlist (17 Coins)
@@ -119,4 +119,4 @@ grep "BOUGHT\|SOLD" ~/.config/dipsniffer/swing-bot.log
 ```
 
 ---
-*Note: YOLOBot talks to Kraken through the Python `ccxt` client and reads `~/.config/dipsniffer/config.toml` API credentials unless `KRAKEN_API_KEY` and `KRAKEN_API_SECRET` are set in the environment.*
+*Note: YOLOBot talks to Kraken through the Python `ccxt` client and reads `~/.config/kraken/config.toml` API credentials unless `KRAKEN_API_KEY` and `KRAKEN_API_SECRET` are set in the environment.*
